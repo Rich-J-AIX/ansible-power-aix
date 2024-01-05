@@ -226,6 +226,11 @@ msg:
     returned: always
     type: str
     sample: 'Missing parameter: force remove requires: ifix_label'
+reboot_required:
+    description: Indicates if ifix requires reboot.
+    returned: always
+    type: bool
+    sample: True
 stdout:
     description: The standard output.
     returned: always
@@ -386,6 +391,7 @@ def main():
         stdout='',
         stderr='',
         ifix_details=[],
+        reboot_required=False,
     )
 
     bosboot_flags = {'skip': '-b', 'load_debugger': '-k', 'invoke_debugger': '-I'}
@@ -396,9 +402,10 @@ def main():
     if action == 'install':
 
         # check if ifix is already installed in the system
-        if is_ifix_installed(module, module.params['ifix_package']):
-            results['msg'] = 'This ifix is already installed. Nothing to do.'
-            module.exit_json(**results)
+        if module.params['ifix_package']:
+            if is_ifix_installed(module, module.params['ifix_package']):
+                results['msg'] = 'This ifix is already installed. Nothing to do.'
+                module.exit_json(**results)
 
         # Usage: emgr -e <ifix pkg> | -f <lfile> [-w <dir>] [-a <path>] [-bkpIqmoX]
         # Usage: emgr -i <ifix pkg> | -f <lfile> [-w <dir>] [-a <path>] [-CkpIqX]
@@ -493,9 +500,10 @@ def main():
 
     elif action == 'remove' and module.params['force']:
         # Usage: emgr -R <ifix label> [-w <dir>] [-a <path>] [-X]
-        if not is_ifix_installed(module, module.params['ifix_package']):
-            results['msg'] = 'This ifix is NOT installed in the system. Nothing to do.'
-            module.exit_json(**results)
+        if module.params['ifix_package']:
+            if not is_ifix_installed(module, module.params['ifix_package']):
+                results['msg'] = 'This ifix is NOT installed in the system. Nothing to do.'
+                module.exit_json(**results)
         if not module.params['ifix_label']:
             results['msg'] = 'Missing parameter: force remove requires: ifix_label'
             module.fail_json(**results)
@@ -509,9 +517,10 @@ def main():
 
     elif action == 'remove':
         # Usage: emgr -r -L <label> | -n <ifix num> | -u <VUID> | -f <lfile> [-w <dir>] [-a <path>] [-bkpIqX]
-        if not is_ifix_installed(module, module.params['ifix_package']):
-            results['msg'] = 'This ifix is NOT installed in the system. Nothing to do.'
-            module.exit_json(**results)
+        if module.params['ifix_package']:
+            if not is_ifix_installed(module, module.params['ifix_package']):
+                results['msg'] = 'This ifix is NOT installed in the system. Nothing to do.'
+                module.exit_json(**results)
         param_one_of(['ifix_label', 'ifix_number', 'ifix_vuid', 'list_file'])
         cmd += ['-r']
         if module.params['ifix_label']:
@@ -589,6 +598,9 @@ def main():
         results['stdout'] = stdout
         results['stderr'] = stderr
 
+        if "system reboot is required" in stderr:
+            results['reboot_required'] = True
+
         pattern = "There is no efix data on this system"
         found = re.search(pattern, stderr)
 
@@ -617,6 +629,11 @@ def main():
     else:
         results['msg'] = 'Command \'{0}\' has no preview mode, execution skipped.'.format(' '.join(cmd))
         results['stdout'] = 'No stdout as execution has been skipped.'
+
+    for i in results['ifix_details']:
+        if "Q" in i['STATE']:
+            results['reboot_required'] = True
+            break
 
     module.exit_json(**results)
 
